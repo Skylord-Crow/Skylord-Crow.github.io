@@ -52,43 +52,49 @@ function similarity(a, b) {
 }
   
 
-function buildMusicIndex(filePaths) {
+function buildMusicIndex(files) {
     const index = {};
 
-    for (const path of filePaths) {
-        const filename = path.split("/").pop();
-        const base = filename.replace(/\.[^.]+$/, "");
-        const norm = normalise(base);
-        const key = norm[0] || "_";
+    for (const file of files) {
+        const relPath = file.webkitRelativePath;
 
-        if (!index[key]) index[key] = [];
-        index[key].push({ path, norm });
+        // Remove top-level source directory (e.g. "Music/")
+        const strippedPath = relPath.split("/").slice(1).join("/");
+
+        const filename = strippedPath.split("/").pop();
+        const baseName = filename.replace(/\.[^.]+$/, "");
+        const norm = normalise(baseName);
+
+        const bucket = norm[0] || "_";
+        if (!index[bucket]) index[bucket] = [];
+
+        index[bucket].push({
+            norm,
+            path: strippedPath
+        });
     }
-    console.log("Index sample:", Object.values(musicIndex)[0]?.slice(0, 3));
+
     return index;
 }
   
-function findBestMatch(track, index) {
-    const key = normalise(track);
-    const bucketKey = key[0] || "_";
+function findBestMatch(trackName, index) {
+    const key = normalise(trackName);
+    const bucket = key[0] || "_";
 
-    const candidates =
-        index[bucketKey] ||
-        Object.values(index).flat(); // fallback
-
+    let best = null;
     let bestScore = 0;
-    let bestPath = null;
 
-    for (const item of candidates) {
+    for (const item of index[bucket] || []) {
         const score = similarity(key, item.norm);
         if (score > bestScore) {
             bestScore = score;
-            bestPath = item.path;
+            best = item;
         }
     }
 
-    return bestScore >= MIN_SIMILARITY ? bestPath : null;
+    return bestScore >= MIN_SIMILARITY ? best : null;
 }
+  
 
 function updateProgress(done, total) {
     const percent = Math.floor((done / total) * 100);
