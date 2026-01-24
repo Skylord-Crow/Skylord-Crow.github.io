@@ -1,5 +1,5 @@
 const SUPPORTED_EXTS = [".mp3", ".flac", ".wav", ".m4a", ".ogg"];
-const MIN_SIMILARITY = 0.60;
+const MIN_SIMILARITY = 0.45;
 const supportsDirectoryUpload =
     "webkitdirectory" in document.createElement("input");
 
@@ -33,30 +33,41 @@ function normalise(text) {
 }
 
 function similarity(a, b) {
-    let matches = 0;
-    const len = Math.max(a.length, b.length);
-    for (let i = 0; i < Math.min(a.length, b.length); i++) {
-        if (a[i] === b[i]) matches++;
+    const matrix = Array(a.length + 1)
+        .fill(null)
+        .map(() => Array(b.length + 1).fill(0));
+
+    for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) {
+            if (a[i - 1] === b[j - 1]) {
+                matrix[i][j] = matrix[i - 1][j - 1] + 1;
+            } else {
+                matrix[i][j] = Math.max(matrix[i - 1][j], matrix[i][j - 1]);
+            }
+        }
     }
-    return matches / len;
+
+    const lcs = matrix[a.length][b.length];
+    return (2 * lcs) / (a.length + b.length);
 }
+  
 
 function buildMusicIndex(filePaths) {
     const index = {};
 
     for (const path of filePaths) {
-        const base = path.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, "");
+        const filename = path.split("/").pop();
+        const base = filename.replace(/\.[^.]+$/, "");
         const norm = normalise(base);
         const key = norm[0] || "_";
 
         if (!index[key]) index[key] = [];
         index[key].push({ path, norm });
     }
-
+    console.log("Index sample:", Object.values(musicIndex)[0]?.slice(0, 3));
     return index;
 }
   
-
 function findBestMatch(track, index) {
     const key = normalise(track);
     const bucketKey = key[0] || "_";
