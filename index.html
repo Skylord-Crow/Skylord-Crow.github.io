@@ -8,7 +8,8 @@
 </head>
 
 <body>
-    <h1>CSV → Rockbox M3U8</h1>
+    <h1>CSV → M3U8</h1>
+    <h2><small>v0.9.0-beta</small></h2>
 
     <label>Playlist CSV from <a href="https://exportify.net/">Exportify</a>:</label><br>
     <input type="file" id="csvFile" accept=".csv"><br><br>
@@ -33,6 +34,8 @@
 
     <pre id="log"></pre>
 
+    <script src="matcher.utils.js"></script>
+    <script src="matcher.worker.js"></script>
     <script src="script.js"></script>
 </body>
 

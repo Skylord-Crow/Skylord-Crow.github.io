@@ -1,8 +1,30 @@
+/**
+ * Supported audio file extensions for playlist generation.
+ *
+ * Files outside this list are ignored during indexing to
+ * reduce unnecessary processing and memory usage.
+ *
+ * @constant {string[]}
+ */
 const SUPPORTED_EXTS = [".mp3", ".flac", ".wav", ".m4a", ".ogg"];
-const MIN_SIMILARITY = 0.45;
+
+/**
+ * Detects whether the browser supports directory uploads
+ * via the non-standard `webkitdirectory` attribute.
+ *
+ * If unsupported, users must provide a text-based file list.
+ *
+ * @constant {boolean}
+ */
 const supportsDirectoryUpload =
     "webkitdirectory" in document.createElement("input");
 
+/**
+ * On page load, conditionally hides the directory upload UI
+ * for unsupported browsers and displays a fallback warning.
+ *
+ * This ensures graceful degradation on older or mobile browsers.
+ */
 window.onload = () => {
     if (!supportsDirectoryUpload) {
         document.getElementById("musicDir").style.display = "none";
@@ -10,99 +32,98 @@ window.onload = () => {
     }
 };
 
+/**
+ * Appends a log message to the on-page log output.
+ *
+ * Used to provide real-time feedback on matching success,
+ * failures, and confidence levels.
+ *
+ * @param {string} msg Message to append
+ */
 function log(msg) {
     document.getElementById("log").textContent += msg + "\n";
 }
 
-function getMusicFilesFromDirectory(fileList) {
-    return Array.from(fileList)
-        .map(f => f.webkitRelativePath || f.name)
-        .filter(name =>
-            SUPPORTED_EXTS.some(ext => name.toLowerCase().endsWith(ext))
-        );
-}
-  
 
-function normalise(text) {
-    return text
-        .toLowerCase()
-        .replace(/\(.*?\)/g, "")
-        .replace(/[^a-z0-9 ]/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
-function similarity(a, b) {
-    const matrix = Array(a.length + 1)
-        .fill(null)
-        .map(() => Array(b.length + 1).fill(0));
-
-    for (let i = 1; i <= a.length; i++) {
-        for (let j = 1; j <= b.length; j++) {
-            if (a[i - 1] === b[j - 1]) {
-                matrix[i][j] = matrix[i - 1][j - 1] + 1;
-            } else {
-                matrix[i][j] = Math.max(matrix[i - 1][j], matrix[i][j - 1]);
-            }
-        }
-    }
-
-    const lcs = matrix[a.length][b.length];
-    return (2 * lcs) / (a.length + b.length);
-}
-  
-
-function buildMusicIndex(files) {
+/**
+ * Builds a bucketed index of music files for fast fuzzy matching.
+ *
+ * Indexing strategy:
+ *  - Extracts a relative file path suitable for playlist output
+ *  - Normalises the filename (without extension)
+ *  - Buckets entries by the first character of the normalised name
+ *
+ * Bucketing drastically reduces the search space during matching,
+ * enabling acceptable performance even with large libraries.
+ *
+ * UI updates are throttled to avoid blocking the main thread.
+ *
+ * @param {File[]} files Uploaded music files
+ * @returns {Promise<Object>} Music index keyed by initial character
+ */
+async function buildMusicIndex(files) {
     const index = {};
+    let done = 0;
 
     for (const file of files) {
-        const relPath = file.webkitRelativePath;
+        const relPath = file.webkitRelativePath || file.name;
 
-        // Remove top-level source directory (e.g. "Music/")
-        const strippedPath = relPath.split("/").slice(1).join("/");
+        const parts = relPath.split("/");
+        const strippedPath =
+            parts.length > 1 ? parts.slice(1).join("/") : parts[0];
 
         const filename = strippedPath.split("/").pop();
         const baseName = filename.replace(/\.[^.]+$/, "");
         const norm = normalise(baseName);
 
-        const bucket = norm[0] || "_";
+        if (!norm) continue;
+
+        const bucket = norm[0];
         if (!index[bucket]) index[bucket] = [];
 
-        index[bucket].push({
-            norm,
-            path: strippedPath
-        });
-    }
+        index[bucket].push({ norm, path: strippedPath });
 
-    return index;
-}
-  
-function findBestMatch(trackName, index) {
-    const key = normalise(trackName);
-    const bucket = key[0] || "_";
+        done++;
 
-    let best = null;
-    let bestScore = 0;
-
-    for (const item of index[bucket] || []) {
-        const score = similarity(key, item.norm);
-        if (score > bestScore) {
-            bestScore = score;
-            best = item;
+        if (done % 250 === 0) {
+            updateProgress(done, files.length);
+            await new Promise(r => setTimeout(r, 0)); // UI breathe
         }
     }
 
-    return bestScore >= MIN_SIMILARITY ? best : null;
+    updateProgress(files.length, files.length);
+    return index;
 }
-  
 
+/**
+ * Updates the progress display with a percentage and counter.
+ *
+ * Used during both indexing and worker-based matching
+ * to provide continuous feedback for long-running operations.
+ *
+ * @param {number} done Items processed
+ * @param {number} total Total items
+ */
 function updateProgress(done, total) {
     const percent = Math.floor((done / total) * 100);
     document.getElementById("progress").textContent =
         `Processing… ${percent}% (${done}/${total})`;
 }
   
-
+/**
+ * Main application entry point.
+ *
+ * Responsibilities:
+ *  - Validate user input
+ *  - Load music files (directory or text fallback)
+ *  - Build the music index
+ *  - Parse the CSV playlist
+ *  - Delegate matching to a Web Worker
+ *  - Generate and download an M3U8 playlist
+ *
+ * Heavy matching work is offloaded to a Web Worker to
+ * keep the UI responsive.
+ */
 async function generate() {
     const csvFile = document.getElementById("csvFile").files[0];
     const dirFiles = document.getElementById("musicDir").files;
@@ -117,11 +138,10 @@ async function generate() {
     let musicPaths = [];
 
     if (supportsDirectoryUpload && dirFiles.length) {
-        musicPaths = Array.from(dirFiles)
-            .map(f => f.webkitRelativePath)
-            .filter(p =>
-                SUPPORTED_EXTS.some(ext => p.toLowerCase().endsWith(ext))
-            );
+        musicPaths = Array.from(dirFiles).filter(f =>
+            SUPPORTED_EXTS.some(ext => f.name.toLowerCase().endsWith(ext))
+        );
+
     } else if (txtFile) {
         const text = await txtFile.text();
         musicPaths = text
@@ -136,43 +156,63 @@ async function generate() {
     }
 
     log(`Indexing ${musicPaths.length} music files…`);
-    const musicIndex = buildMusicIndex(musicPaths);
+    const musicIndex = await buildMusicIndex(musicPaths);
 
     const csvText = await csvFile.text();
     const parsed = Papa.parse(csvText, { header: true });
 
-    let output = "#EXTM3U\n";
-    let matched = 0;
-    let processed = 0;
+    const validRows = parsed.data.filter(r => r["Track Name"]);
+    const trackNames = validRows.map(r => r["Track Name"]);
 
-    for (const row of parsed.data) {
-        const track = row["Track Name"];
-        if (!track) continue;
+    //log("Starting worker...")
+    const worker = new Worker("matcher.worker.js");
 
-        processed++;
-        const match = findBestMatch(track, musicIndex);
+    worker.postMessage({
+        tracks: trackNames,
+        index: musicIndex
+    });
 
-        if (match) {
-            output += `${rockboxRoot}/${match}\n`;
-            matched++;
-        } else {
-            log(`No match: ${track}`);
+    worker.onmessage = e => {
+        if (e.data.progress !== undefined) {
+            updateProgress(e.data.progress, trackNames.length);
+            return;
         }
 
-        if (processed % 5 === 0) {
-            updateProgress(processed, parsed.data.length);
-            await new Promise(r => setTimeout(r, 0)); // UI breathe
+        if (e.data.done) {
+            const matches = e.data.results;
+            let output = "#EXTM3U\n";
+            let matched = 0;
+
+            matches.forEach((match, i) => {
+                const track = trackNames[i];
+                //log(`Finding track ${track}`)
+
+                if (match) {
+                    output += `${rockboxRoot}/${match.path}\n`;
+                    matched++;
+
+                    log(
+                        match.level === "high"
+                            ? `✔ ${track} (${match.score.toFixed(2)})`
+                            : `⚠ ${track} (${match.score.toFixed(2)})`
+                    );
+                } else {
+                    log(`✘ No match: ${track}`);
+                }
+            });
+
+            updateProgress(trackNames.length, trackNames.length);
+            log(`Matched ${matched}/${trackNames.length}.`);
+
+            const blob = new Blob([output], { type: "audio/x-mpegurl" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = csvFile.name.replace(/\.[^.]+$/, "") + ".m3u8";
+            a.click();
+
+            worker.terminate();
         }
-    }
-
-    updateProgress(parsed.data.length, parsed.data.length);
-    log(`Matched ${matched}/${parsed.data.length}`);
-
-    const blob = new Blob([output], { type: "audio/x-mpegurl" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "playlist.m3u8";
-    a.click();
+    };
 }
   
   
