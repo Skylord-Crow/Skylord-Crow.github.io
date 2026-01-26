@@ -219,6 +219,7 @@
 
         <div class="card">
             <h2>1. Playlist Source</h2>
+            <p class="muted">A CSV file containing the track names to be linked. Track names must be on the 2nd column.</p>
             <label>
                 Playlist CSV (e.g. from <a href="https://exportify.net/" target="_blank">Exportify</a>)
             </label>
@@ -227,7 +228,7 @@
 
         <div class="card">
             <h2>2. Music Library</h2>
-
+            <p class="muted">Where music files are kept. Works best if filenames are just the track names.</p>
             <div id="dirSupportWarning" class="warning" style="display:none;">
                 Your browser does not support directory selection.
                 Please upload a text file containing music filenames instead.
@@ -246,6 +247,7 @@
 
         <div class="card">
             <h2>3. Output Settings</h2>
+            <p class="muted">In case the generated playlist will be used on a different device and track files will be located in a different folder.</p>
             <label>Playlist root directory</label>
             <input type="text" id="rockboxRoot" value="/Music">
             <p class="muted">Used to generate relative paths inside the playlist.</p>
