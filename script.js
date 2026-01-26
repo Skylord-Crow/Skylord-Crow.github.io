@@ -32,6 +32,23 @@ window.onload = () => {
     }
 };
 
+document.getElementById("musicDir").addEventListener("change", e => {
+    const inferred = inferRockboxRootFromFiles(e.target.files);
+    if (inferred) {
+        document.getElementById("rockboxRoot").value = inferred;
+    }
+});
+
+document.getElementById("musicList").addEventListener("change", async e => {
+    const text = await e.target.files[0].text();
+    const paths = text.split("\n").map(l => l.trim()).filter(Boolean);
+    const inferred = inferRockboxRootFromFiles(paths);
+    if (inferred) {
+        document.getElementById("rockboxRoot").value = inferred;
+    }
+});
+
+
 /**
  * Appends a log message to the on-page log output.
  *
@@ -95,6 +112,34 @@ async function buildMusicIndex(files) {
     return index;
 }
 
+function inferRockboxRootFromFiles(files) {
+    if (!files || files.length === 0) return null;
+
+    // Directory upload case
+    if (files[0] instanceof File && files[0].webkitRelativePath) {
+        const firstPath = files[0].webkitRelativePath;
+        const topLevel = firstPath.split("/")[0];
+        return "/" + topLevel;
+    }
+
+    // TXT list case (array of strings)
+    if (typeof files[0] === "string") {
+        const splitPaths = files.map(p => p.split("/").filter(Boolean));
+        if (!splitPaths.length) return null;
+
+        let common = splitPaths[0][0];
+        for (const parts of splitPaths) {
+            if (parts[0] !== common) {
+                return "/Music";
+            }
+        }
+        return "/" + common;
+    }
+
+    return null;
+}
+
+
 /**
  * Updates the progress display with a percentage and counter.
  *
@@ -153,6 +198,13 @@ async function generate() {
     } else {
         alert("Please select a music folder or upload a filename list.");
         return;
+    }
+
+    const inferredRoot = inferRockboxRootFromFiles(musicPaths);
+    const rootInput = document.getElementById("rockboxRoot");
+
+    if (inferredRoot && !rootInput.value) {
+        rootInput.value = inferredRoot;
     }
 
     log(`Indexing ${musicPaths.length} music files…`);
