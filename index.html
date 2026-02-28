@@ -150,6 +150,39 @@
             cursor: not-allowed;
         }
 
+        button.spotify-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+
+            padding: 10px 18px;
+            border-radius: 999px;
+            border: none;
+
+            background: #1DB954; /* Spotify green */
+            color: #161914;            /* Spotify black text */
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(5, 34, 3, 0.486);
+
+            transition: all 0.2s ease;
+        }
+
+        button.spotify-btn:hover {
+            background-color: #1ed760; /* slightly lighter green */
+            transform: translateY(-1px);
+        }
+
+        button.spotify-btn:active {
+            transform: translateY(0);
+        }
+
+        button.spotify-icon {
+            width: 18px;
+            height: 18px;
+        }
+
         #log {
             background: #0b0e1c;
             border: 1px solid var(--border);
@@ -210,8 +243,8 @@
     <div class="container">
 
         <header>
-            <h1><a href="https://github.com/Can-Bot/can-bot.github.io" style="cursor:help">CSV → M3U8</a></h1>
-            <small>v0.9.5-beta · .m3u8 Generator</small>
+            <h1><a href="https://github.com/Can-Bot/can-bot.github.io" style="cursor:help">M3U8 Maker</a></h1>
+            <small>v1.0.0-beta · .m3u8 Generator</small>
         </header>
 
         <div id="errorBanner" class="error-banner hidden">
@@ -220,23 +253,41 @@
         </div>
 
         <div class="card">
-            <label><h1>Playlist source</h1></label>
+            <label>
+                <h1>Playlist source</h1>
+            </label>
+
             <div style="display:flex; gap:12px; margin-bottom:12px;">
                 <label>
-                    <input type="radio" name="mode" value="csv" checked>
+                    <input type="radio" name="mode" value="spotify" checked>
+                    Spotify playlist
+                </label>
+
+                <label>
+                    <input type="radio" name="mode" value="csv">
                     CSV playlist
                 </label>
+
                 <label>
                     <input type="radio" name="mode" value="dir">
                     Directory playlist
                 </label>
             </div>
-            <div id="csvMode">
+
+            <div id="spotifyMode">
+                <label>Spotify Playlist URL</label>
+                <input type="text" id="spotifyUrl" placeholder="https://open.spotify.com/playlist/...">
+                <button id="spotifyLoginBtn" type="button.spotify-btn" class="spotify-btn">Login to Spotify</button>
+            </div>
+
+            <div id="csvMode" style="display:none;">
                 <label>
-                    Playlist CSV (e.g. from <a href="https://exportify.net/" target="_blank">Exportify</a>)
+                    Playlist CSV (e.g. from
+                    <a href="https://exportify.net/" target="_blank">Exportify</a>)
                 </label>
                 <input type="file" id="csvFile" accept=".csv">
             </div>
+
             <div id="dirMode" style="display:none;">
                 <label>Select playlist directory</label>
                 <input type="file" id="playlistDir" webkitdirectory multiple>
@@ -244,6 +295,7 @@
                     Playlist will contain all supported audio files in this directory.
                 </p>
             </div>
+
         </div>
 
         <div class="card">
@@ -269,7 +321,7 @@
             <h2>3. Output Settings</h2>
             <p class="muted">In case the generated playlist will be used on a different device and track files will be located in a different folder.</p>
             <label>Playlist root directory</label>
-            <input type="text" id="rockboxRoot" value="/Music">
+            <input type="text" id="rockboxRoot" placeholder="/Music/...">
         </div>
 
         <div class="card">
@@ -287,6 +339,7 @@
 
     <script src="matcher.utils.js"></script>
     <script src="classes.js"></script>
+    <script src="spotify_playlist_fetch.js"></script>
     <script src="script.js"></script>
 </body>
 
