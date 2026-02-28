@@ -1,306 +1,116 @@
-/**
- * Supported audio file extensions for playlist generation.
- *
- * Files outside this list are ignored during indexing to
- * reduce unnecessary processing and memory usage.
- *
- * @constant {string[]}
- */
+// --- Constants ---
 const SUPPORTED_EXTS = [".mp3", ".flac", ".wav", ".m4a", ".ogg"];
 
-/**
- * Detects whether the browser supports directory uploads
- * via the non-standard `webkitdirectory` attribute.
- *
- * If unsupported, users must provide a text-based file list.
- *
- * @constant {boolean}
- */
-const supportsDirectoryUpload =
-    "webkitdirectory" in document.createElement("input");
+// --- UI Globals ---
+const ui = {
+    csv: document.getElementById("csvFile"),
+    dir: document.getElementById("musicDir"),
+    txt: document.getElementById("musicList"),
+    root: document.getElementById("rockboxRoot"),
+    log: document.getElementById("log"),
+    progress: document.getElementById("progress"),
+    errorBanner: document.getElementById("errorBanner"),
+    errorMsg: document.getElementById("errorMessage"),
+    btn: document.querySelector("button")
+};
 
-/**
- * On page load, conditionally hides the directory upload UI
- * for unsupported browsers and displays a fallback warning.
- *
- * This ensures graceful degradation on older or mobile browsers.
- */
+// --- Helper Functions ---
+const log = (msg) => ui.log.textContent += msg + "\n";
+
+const updateProgress = (done, total) => {
+    const percent = Math.floor((done / total) * 100);
+    ui.progress.textContent = `Processing… ${percent}% (${done}/${total})`;
+};
+
+const showError = (msg) => {
+    ui.errorMsg.textContent = msg;
+    ui.errorBanner.classList.remove("hidden");
+    ui.errorBanner.scrollIntoView({ behavior: "smooth" });
+};
+
+document.getElementById("errorClose").onclick = () => ui.errorBanner.classList.add("hidden");
+
+// --- Main Generation Logic ---
+async function generate() {
+    ui.errorBanner.classList.add("hidden");
+    ui.log.textContent = "";
+
+    // 1. Validation
+    if (!ui.csv.files[0]) return showError("Please upload a CSV playlist.");
+    
+    // 2. Prepare File List
+    let filesToProcess = [];
+    if (ui.dir.files.length) {
+        filesToProcess = Array.from(ui.dir.files).filter(f => 
+            SUPPORTED_EXTS.some(ext => f.name.toLowerCase().endsWith(ext))
+        );
+    } else if (ui.txt.files[0]) {
+        const text = await ui.txt.files[0].text();
+        filesToProcess = text.split("\n")
+            .map(l => l.trim())
+            .filter(l => SUPPORTED_EXTS.some(ext => l.toLowerCase().endsWith(ext)));
+    } else {
+        return showError("Please select a music folder or upload a filename list.");
+    }
+
+    try {
+        ui.btn.disabled = true;
+
+        // 3. Initialize Objects
+        const db = new MDatabase();
+        const playlist = new Playlist();
+
+        // 4. Build Database (Ingest Music)
+        log(`Indexing ${filesToProcess.length} music files...`);
+        
+        // If the user hasn't manually typed a root, use the inferred one from the DB
+        // We pass a callback to update the UI progress bar
+        await db.ingest(filesToProcess, updateProgress);
+        
+        // Update UI with inferred root if empty
+        if (!ui.root.value && db.rootPath) {
+            ui.root.value = db.rootPath;
+        }
+
+        // 5. Parse Playlist
+        log(`Parsing CSV...`);
+        await playlist.parseCSV(ui.csv.files[0]);
+
+        // 6. Run Matching (Worker)
+        log(`Matching tracks...`);
+        const matches = await playlist.matchAgainst(db, "matcher.worker.js", {
+            onProgress: updateProgress
+        });
+
+        // 7. Feedback Logging
+        matches.forEach((m, i) => {
+            const name = playlist.tracksToFind[i];
+            if (m) {
+                const icon = m.level === "high" ? "✔" : "⚠";
+                log(`${icon} ${name} -> ${m.path} (${m.score.toFixed(2)})`);
+            } else {
+                log(`✘ No match: ${name}`);
+            }
+        });
+
+        // 8. Generate & Download
+        const result = playlist.generateM3U8(ui.root.value);
+        log(`\nDone! Matched ${result.count}/${result.total}. Downloading...`);
+        
+        playlist.download(result.content);
+
+    } catch (err) {
+        console.error(err);
+        showError(err.message || "An unexpected error occurred.");
+    } finally {
+        ui.btn.disabled = false;
+    }
+}
+
+// Browser capability check
 window.onload = () => {
-    if (!supportsDirectoryUpload) {
-        document.getElementById("musicDir").style.display = "none";
+    if (!("webkitdirectory" in document.createElement("input"))) {
+        ui.dir.style.display = "none";
         document.getElementById("dirSupportWarning").style.display = "block";
     }
 };
-
-document.getElementById("musicDir").addEventListener("change", e => {
-    const inferred = inferRockboxRootFromFiles(e.target.files);
-    if (inferred) {
-        document.getElementById("rockboxRoot").value = inferred;
-    }
-});
-
-document.getElementById("musicList").addEventListener("change", async e => {
-    const text = await e.target.files[0].text();
-    const paths = text.split("\n").map(l => l.trim()).filter(Boolean);
-    const inferred = inferRockboxRootFromFiles(paths);
-    if (inferred) {
-        document.getElementById("rockboxRoot").value = inferred;
-    }
-});
-
-
-document.getElementById("errorClose").onclick = clearError;
-
-
-/**
- * Appends a log message to the on-page log output.
- *
- * Used to provide real-time feedback on matching success,
- * failures, and confidence levels.
- *
- * @param {string} msg Message to append
- */
-function log(msg) {
-    document.getElementById("log").textContent += msg + "\n";
-}
-
-
-/**
- * Builds a bucketed index of music files for fast fuzzy matching.
- *
- * Indexing strategy:
- *  - Extracts a relative file path suitable for playlist output
- *  - Normalises the filename (without extension)
- *  - Buckets entries by the first character of the normalised name
- *
- * Bucketing drastically reduces the search space during matching,
- * enabling acceptable performance even with large libraries.
- *
- * UI updates are throttled to avoid blocking the main thread.
- *
- * @param {File[]} files Uploaded music files
- * @returns {Promise<Object>} Music index keyed by initial character
- */
-async function buildMusicIndex(files) {
-    const index = {};
-    let done = 0;
-
-    for (const file of files) {
-        const relPath = file.webkitRelativePath || file.name;
-
-        const parts = relPath.split("/");
-        const strippedPath =
-            parts.length > 1 ? parts.slice(1).join("/") : parts[0];
-
-        const filename = strippedPath.split("/").pop();
-        const baseName = filename.replace(/\.[^.]+$/, "");
-        const norm = normalise(baseName);
-
-        if (!norm) continue;
-
-        const bucket = norm[0];
-        if (!index[bucket]) index[bucket] = [];
-
-        index[bucket].push({ norm, path: strippedPath });
-
-        done++;
-
-        if (done % 250 === 0) {
-            updateProgress(done, files.length);
-            await new Promise(r => setTimeout(r, 0)); // UI breathe
-        }
-    }
-
-    updateProgress(files.length, files.length);
-    return index;
-}
-
-function inferRockboxRootFromFiles(files) {
-    if (!files || files.length === 0) return null;
-
-    // Directory upload case
-    if (files[0] instanceof File && files[0].webkitRelativePath) {
-        const firstPath = files[0].webkitRelativePath;
-        const topLevel = firstPath.split("/")[0];
-        return "/" + topLevel;
-    }
-
-    // TXT list case (array of strings)
-    if (typeof files[0] === "string") {
-        const splitPaths = files.map(p => p.split("/").filter(Boolean));
-        if (!splitPaths.length) return null;
-
-        let common = splitPaths[0][0];
-        for (const parts of splitPaths) {
-            if (parts[0] !== common) {
-                return "/Music";
-            }
-        }
-        return "/" + common;
-    }
-
-    return null;
-}
-
-function showError(message) {
-    const banner = document.getElementById("errorBanner");
-    const msg = document.getElementById("errorMessage");
-
-    msg.textContent = message;
-    banner.classList.remove("hidden");
-
-    const rect = banner.getBoundingClientRect();
-    if (rect.top < 0 || rect.bottom > window.innerHeight) {
-        banner.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-}
-
-function clearError() {
-    document.getElementById("errorBanner").classList.add("hidden");
-}
-
-
-/**
- * Updates the progress display with a percentage and counter.
- *
- * Used during both indexing and worker-based matching
- * to provide continuous feedback for long-running operations.
- *
- * @param {number} done Items processed
- * @param {number} total Total items
- */
-function updateProgress(done, total) {
-    const percent = Math.floor((done / total) * 100);
-    document.getElementById("progress").textContent =
-        `Processing… ${percent}% (${done}/${total})`;
-}
-  
-/**
- * Main application entry point.
- *
- * Responsibilities:
- *  - Validate user input
- *  - Load music files (directory or text fallback)
- *  - Build the music index
- *  - Parse the CSV playlist
- *  - Delegate matching to a Web Worker
- *  - Generate and download an M3U8 playlist
- *
- * Heavy matching work is offloaded to a Web Worker to
- * keep the UI responsive.
- */
-async function generate() {
-    const csvFile = document.getElementById("csvFile").files[0];
-    const dirFiles = document.getElementById("musicDir").files;
-    const txtFile = document.getElementById("musicList").files[0];
-    const rockboxRoot = document.getElementById("rockboxRoot").value;
-
-    if (!csvFile) {
-        showError("Please upload a CSV playlist.");
-        return;
-    }
-
-    let musicPaths = [];
-
-    if (supportsDirectoryUpload && dirFiles.length) {
-        musicPaths = Array.from(dirFiles).filter(f =>
-            SUPPORTED_EXTS.some(ext => f.name.toLowerCase().endsWith(ext))
-        );
-
-    } else if (txtFile) {
-        const text = await txtFile.text();
-        musicPaths = text
-            .split("\n")
-            .map(l => l.trim())
-            .filter(l =>
-                SUPPORTED_EXTS.some(ext => l.toLowerCase().endsWith(ext))
-            );
-    } else {
-        showError("Please select a music folder or upload a filename list.");
-        return;
-    }
-
-    const inferredRoot = inferRockboxRootFromFiles(musicPaths);
-    const rootInput = document.getElementById("rockboxRoot");
-
-    if (inferredRoot && !rootInput.value) {
-        rootInput.value = inferredRoot;
-    }
-    try{
-        log(`Indexing ${musicPaths.length} music files…`);
-        const musicIndex = await buildMusicIndex(musicPaths);
-
-        const csvText = await csvFile.text();
-        const parsed = Papa.parse(csvText, { header: true });
-
-        const validRows = parsed.data.filter(r => r["Track Name"]);
-        const trackNames = validRows.map(r => r["Track Name"]);
-
-        //log("Starting worker...")
-        const worker = new Worker("matcher.worker.js");
-
-        worker.onerror = e => {
-            console.error("Worker error:", e);
-            showError("Matching failed due to a background worker error.");
-            worker.terminate();
-        };
-
-        worker.onmessageerror = () => {
-            showError("Received malformed data from matching worker.");
-            worker.terminate();
-        };        
-
-        worker.postMessage({
-            tracks: trackNames,
-            index: musicIndex
-        });
-
-        worker.onmessage = e => {
-            if (e.data.progress !== undefined) {
-                updateProgress(e.data.progress, trackNames.length);
-                return;
-            }
-
-            if (e.data.done) {
-                const matches = e.data.results;
-                let output = "#EXTM3U\n";
-                let matched = 0;
-
-                matches.forEach((match, i) => {
-                    const track = trackNames[i];
-                    //log(`Finding track ${track}`)
-
-                    if (match) {
-                        output += `${rockboxRoot}/${match.path}\n`;
-                        matched++;
-
-                        log(
-                            match.level === "high"
-                                ? `✔ ${track} (${match.score.toFixed(2)})`
-                                : `⚠ ${track} (${match.score.toFixed(2)})`
-                        );
-                    } else {
-                        log(`✘ No match: ${track}`);
-                    }
-                });
-
-                updateProgress(trackNames.length, trackNames.length);
-                log(`Matched ${matched}/${trackNames.length}.`);
-
-                const blob = new Blob([output], { type: "audio/x-mpegurl" });
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = csvFile.name.replace(/\.[^.]+$/, "") + ".m3u8";
-                a.click();
-
-                worker.terminate();
-            }
-        };
-    } catch (err) {
-        console.error(err);
-        showError("Something went wrong while generating the playlist.");
-    }
-    
-}
-  
-  
