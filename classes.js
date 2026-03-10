@@ -86,7 +86,7 @@ class MDatabase {
     constructor() {
         this.songs = [];
         this.index = {};
-        this.rootPath = "/Music";
+        this.rootPath = "";
     }
 
     /**
@@ -95,8 +95,6 @@ class MDatabase {
     async ingest(files, onProgress) {
         this.songs = [];
         this.index = {};
-        
-        this.rootPath = this._inferRoot(files) || this.rootPath;
 
         // Configuration: How many files to read in parallel.
         // Reading headers is disk-intensive. 50 is a safe balance for browsers.
@@ -141,15 +139,29 @@ class MDatabase {
     }
 
     _inferRoot(files) {
-        if (!files || files.length === 0) return null;
+        if (!files || files.length === 0) return "/";
+
+        // Case 1: Folder upload (File objects with webkitRelativePath)
         if (files[0] instanceof File && files[0].webkitRelativePath) {
-            return "/" + files[0].webkitRelativePath.split("/")[0];
+            const firstPath = files[0].webkitRelativePath;
+            const parts = firstPath.split("/").filter(Boolean);
+
+            // The first directory selected becomes the library root
+            if (parts.length > 1) {
+                return "/" + parts[0];
+            }
         }
+
+        // Case 2: Text list of paths
         if (typeof files[0] === "string") {
-            const parts = files[0].split("/").filter(Boolean);
-            return parts.length > 1 ? "/" + parts[0] : "/Music";
+            const first = files[0].split("/").filter(Boolean);
+
+            if (first.length > 1) {
+                return "/" + first[0];
+            }
         }
-        return null;
+
+        return "/";
     }
 
     getIndexForWorker() {
@@ -205,6 +217,7 @@ class Playlist {
     async parseSpotify(url) {
         if (!url) throw new Error("Spotify URL is required.");
 
+        console.log("Auth?:", SpotifyPlaylistFetch.isAuthenticated());
         const tracks = await SpotifyPlaylistFetch.fetchFromUrl(url);
 
         if (!tracks.length) {

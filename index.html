@@ -2,6 +2,8 @@
 <html lang="en">
 
 <head>
+    <link rel="android-chrome" sizes="192x192" href="favicon_io/android-chrome-192x192.png">
+    <link rel="android-chrome" sizes="512x512" href="favicon_io/android-chrome-512x512.png">
     <link rel="apple-touch-icon" sizes="180x180" href="favicon_io/apple-touch-icon.png">
     <link rel="icon" type="image/png" sizes="32x32" href="favicon_io/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="favicon_io/favicon-16x16.png">
@@ -275,9 +277,15 @@
             </div>
 
             <div id="spotifyMode">
-                <label>Spotify Playlist URL</label>
-                <input type="text" id="spotifyUrl" placeholder="https://open.spotify.com/playlist/...">
                 <button id="spotifyLoginBtn" type="button.spotify-btn" class="spotify-btn">Login to Spotify</button>
+                
+                <div id="spotifyPlaylistInput" style="display:none;">
+                    <p>
+                        <label>Spotify Playlist URL</label>
+                        <input type="text" id="spotifyUrl" placeholder="https://open.spotify.com/playlist/...">
+                    </p>
+                </div>
+                                
             </div>
 
             <div id="csvMode" style="display:none;">
@@ -300,32 +308,33 @@
 
         <div class="card">
             <h2>2. Music Library</h2>
-            <p class="muted">Where music files are kept. Works best if filenames are just the track names.</p>
             <div id="dirSupportWarning" class="warning" style="display:none;">
                 Your browser does not support directory selection.
-                Please upload a text file containing music filenames instead.
             </div>
 
             <label>Select music folder</label>
             <input type="file" id="musicDir" webkitdirectory multiple>
 
-            <p class="muted">OR</p>
+            <div style="display:none;">
+                <p class="muted">OR</p>
+                
+                <label>Upload track list (.txt)</label>
+                <input type="file" id="musicList" accept=".txt">
+            </div>
 
-            <label>Upload track list (.txt)</label>
-            <input type="file" id="musicList" accept=".txt">
 
             <div id="progress"></div>
         </div>
 
-        <div class="card">
+        <!-- <div class="card">
             <h2>3. Output Settings</h2>
             <p class="muted">In case the generated playlist will be used on a different device and track files will be located in a different folder.</p>
             <label>Playlist root directory</label>
             <input type="text" id="rockboxRoot" placeholder="/Music/...">
-        </div>
+        </div> -->
 
         <div class="card">
-            <h2>4. Generate</h2>
+            <h2>3. Generate</h2>
             <button onclick="generate()" style="cursor:progress"><span>Generate M3U8 Playlist</span></button>
             <pre id="log"></pre>
         </div>

@@ -6,12 +6,12 @@ const ui = {
     csv: document.getElementById("csvFile"),
     dir: document.getElementById("musicDir"),
     txt: document.getElementById("musicList"),
-    root: document.getElementById("rockboxRoot"),
     log: document.getElementById("log"),
     progress: document.getElementById("progress"),
     errorBanner: document.getElementById("errorBanner"),
     errorMsg: document.getElementById("errorMessage"),
     btn: document.querySelector("button"),
+    plInput: document.getElementById("spotifyPlaylistInput"),
     spotifyUrl: document.getElementById("spotifyUrl"),
     spotifyLogin: document.getElementById("spotifyLoginBtn"),
     modeRadios: document.querySelectorAll("input[name='mode']")
@@ -73,7 +73,7 @@ async function generate() {
     if (ui.dir.files.length) {
         filesToProcess = Array.from(ui.dir.files).filter(f =>
             SUPPORTED_EXTS.some(ext =>
-                f.name.toLowerCase().endsWith(ext)
+                f.webkitRelativePath.toLowerCase().endsWith(ext)
             )
         );
     }
@@ -103,16 +103,13 @@ async function generate() {
         log(`Indexing ${filesToProcess.length} music files...`);
         await db.ingest(filesToProcess, updateProgress);
 
-        if (!ui.root.value && db.rootPath) {
-            ui.root.value = db.rootPath;
-        }
-
         // 5. Parse Playlist Source
         if (mode === "spotify") {
-            log("Fetching Spotify playlist...");
-            await SpotifyPlaylistFetch.loginIfNeeded();
+            if (!SpotifyPlaylistFetch.isAuthenticated()) {
+                throw new Error("Please login to Spotify first.");
+            }
+
             await playlist.parseSpotify(ui.spotifyUrl.value.trim());
-            log(`Fetched ${playlist.tracksToFind.length} tracks from Spotify.`);
         }
         
         else if (mode === "csv") {
@@ -141,7 +138,7 @@ async function generate() {
         });
 
         // 8. Generate & Download
-        const result = playlist.generateM3U8(ui.root.value);
+        const result = playlist.generateM3U8(db.rootPath);
 
         log(`\nDone! Matched ${result.count}/${result.total}. Downloading...`);
 
@@ -180,9 +177,6 @@ window.onload = async () => {
         ui.spotifyLogin.style.backgroundColor = "#191414";
         ui.spotifyLogin.style.color = "#2fff78";
         ui.spotifyLogin.disabled = true;
+        ui.plInput.style.display = "block";
     }
-
-    ui.spotifyLogin?.addEventListener("click", () => {
-        SpotifyPlaylistFetch.loginIfNeeded();
-    });
 };
