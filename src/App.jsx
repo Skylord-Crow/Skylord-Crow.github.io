@@ -6,64 +6,37 @@ import { ErrorBanner } from "./components/ErrorBanner.jsx";
 import { SpotifyPlaylistFetch } from "./lib/SpotifyPlaylistFetch.js";
 import { useGenerator } from "./hooks/useGenerator.js";
 
-const SPOTIFY_CLIENT_ID = "e96819b4ea994c588fa3f09e9af3a496";
-
 export default function App() {
-  // ── Playlist source state ─────────────────────────────────
   const [mode, setMode] = useState("spotify");
-  const [spotifyConnected, setSpotifyConnected] = useState(false);
+  const [spotifyConnected, setSpotifyConnected] = useState(
+    // Init already ran before mount — read auth state synchronously
+    SpotifyPlaylistFetch.isAuthenticated()
+  );
   const [spotifyUrl, setSpotifyUrl] = useState("");
   const [csvFile, setCsvFile] = useState(null);
   const [playlistDirFiles, setPlaylistDirFiles] = useState([]);
-
-  // ── Music library state ───────────────────────────────────
   const [musicFiles, setMusicFiles] = useState([]);
 
-  // ── Generation hook ───────────────────────────────────────
   const { logs, progress, isRunning, error, generate, clearError } =
     useGenerator();
 
-  // ── Spotify init ──────────────────────────────────────────
-  useEffect(() => {
-    SpotifyPlaylistFetch.init(
-      SPOTIFY_CLIENT_ID,
-      window.location.origin
-    ).then(() => {
-      setSpotifyConnected(SpotifyPlaylistFetch.isAuthenticated());
-    });
-  }, []);
-
-  // ── Validation ────────────────────────────────────────────
   function validateAndGenerate() {
     clearError();
-
-    if (mode === "csv" && !csvFile) {
+    if (mode === "csv" && !csvFile)
       return alert("Please upload a CSV playlist.");
-    }
-    if (mode === "spotify" && !spotifyUrl.trim()) {
+    if (mode === "spotify" && !spotifyUrl.trim())
       return alert("Please enter a Spotify playlist URL.");
-    }
-    if (!musicFiles.length) {
+    if (!musicFiles.length)
       return alert("Please select a music folder.");
-    }
 
-    generate({
-      mode,
-      csvFile,
-      spotifyUrl: spotifyUrl.trim(),
-      musicFiles,
-      playlistDirFiles,
-    });
+    generate({ mode, csvFile, spotifyUrl: spotifyUrl.trim(), musicFiles, playlistDirFiles });
   }
 
   return (
     <div className="container">
       <header>
         <h1>
-          <a
-            href="https://github.com/Can-Bot/can-bot.github.io"
-            title="View on GitHub"
-          >
+          <a href="https://github.com/Can-Bot/can-bot.github.io" title="View on GitHub">
             M3U8 Maker
           </a>
         </h1>
@@ -98,8 +71,7 @@ export default function App() {
       />
 
       <footer>
-        <span>🔒</span> All processing happens locally in your browser — no
-        data leaves your machine.
+        <span>🔒</span> All processing happens locally — no data leaves your machine.
       </footer>
     </div>
   );
