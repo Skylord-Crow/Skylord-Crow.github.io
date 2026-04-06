@@ -52,12 +52,15 @@ export default function App() {
         spotifyUrl={spotifyUrl}
         onSpotifyUrlChange={setSpotifyUrl}
         onSpotifyLogin={() => SpotifyPlaylistFetch.loginIfNeeded()}
+        onSpotifyDisconnect={() => {
+          SpotifyPlaylistFetch.disconnect();
+          setSpotifyConnected(false);
+        }}
         csvFile={csvFile}
         onCsvChange={setCsvFile}
         dirFiles={playlistDirFiles}
         onDirChange={setPlaylistDirFiles}
       />
-
       <MusicLibrary
         musicFiles={musicFiles}
         onMusicFilesChange={setMusicFiles}

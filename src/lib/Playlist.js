@@ -45,16 +45,18 @@ export class Playlist {
 
     const { name, tracks } = await SpotifyPlaylistFetch.fetchFromUrl(url);
 
+    console.log(`Spotify returned ${tracks.length} tracks for playlist: ${name}`);
+
     if (!tracks.length) {
-      throw new Error("Spotify playlist is empty or inaccessible.");
+      throw new Error(
+        "No tracks found in this playlist. It may be empty, contain only podcast episodes, " +
+        "or all tracks may be unavailable in your region. Check the console for the raw item structure."
+      );
     }
 
     this.spotifyTracks = tracks;
-    this.name = name;  // real playlist name from Spotify
-
-    this.tracksToFind = tracks.map((t) =>
-      `${t.artists} ${t.name}`.trim()
-    );
+    this.name = name;
+    this.tracksToFind = tracks.map((t) => `${t.artists} ${t.name}`.trim());
 
     return this.tracksToFind.length;
   }
@@ -109,16 +111,39 @@ export class Playlist {
 
   /* ─── M3U8 output ─────────────────────────────────────────── */
 
-  generateM3U8(rootPath) {
+  generateM3U8() {
+    const today = new Date().toISOString().split("T")[0];
+
+    // Collect matched entries
+    const entries = [];
+    this.matchedTracks.forEach((match) => {
+      if (!match) return;
+      entries.push(match);
+    });
+
+    // Use #ARTIST: header only when every track shares the same artist
+    const artists = [...new Set(entries.map((e) => e.artist).filter(Boolean))];
+    const singleArtist = artists.length === 1 ? artists[0] : null;
+
+    // Build output
     let output = "#EXTM3U\n";
+    output += `#PLAYLIST:${this.name}\n`;
+    if (singleArtist) output += `#ARTIST:${singleArtist}\n`;
+    output += `#DATE:${today}\n`;
+
     let count = 0;
 
     this.matchedTracks.forEach((match) => {
       if (!match) return;
 
-      const cleanRoot = rootPath.replace(/\/$/, "");
+      const artist = match.artist || "";
+      const title = match.title || match.path.split("/").pop().replace(/\.[^.]+$/, "");
+      const duration = match.duration ?? -1;
+      const displayName = artist ? `${artist} - ${title}` : title;
       const cleanPath = match.path.replace(/^\//, "");
-      output += `${cleanRoot}/${cleanPath}\n`;
+
+      output += `\n#EXTINF:${duration},${displayName}\n`;
+      output += `${cleanPath}\n`;
       count++;
     });
 

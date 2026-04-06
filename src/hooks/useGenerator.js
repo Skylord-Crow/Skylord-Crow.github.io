@@ -100,7 +100,7 @@ export function useGenerator() {
         });
 
         // ── 6. Generate & download ──────────────────────────────
-        const result = playlist.generateM3U8(db.rootPath);
+        const result = playlist.generateM3U8();
         log(`\nDone! Matched ${result.count}/${result.total}. Downloading…`);
         playlist.download(result.content);
       } catch (err) {

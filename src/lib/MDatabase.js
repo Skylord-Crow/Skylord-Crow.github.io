@@ -10,7 +10,6 @@ export class MDatabase {
   constructor() {
     this.songs = [];
     this.index = {};
-    this.rootPath = "";
   }
 
   /**
@@ -49,6 +48,9 @@ export class MDatabase {
       this.index[bucket].push({
         norm: song.normalizedName,
         path: song.relativePath,
+        artist: song.meta.artist,
+        title: song.meta.title,
+        duration: song.duration,
       });
     }
 

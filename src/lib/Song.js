@@ -32,7 +32,7 @@ export class Song {
   async loadMetadata() {
     if (!this.isFileObject) return false;
 
-    return new Promise((resolve) => {
+    const tagsLoaded = await new Promise((resolve) => {
       window.jsmediatags.read(this.rawSource, {
         onSuccess: (tag) => {
           if (tag.tags.title) this.meta.title = tag.tags.title;
@@ -46,6 +46,33 @@ export class Song {
         },
       });
     });
+
+    // Load duration via Audio element (reads only the stream header, not the full file)
+    await new Promise((resolve) => {
+      // Skip duration loading for formats the browser likely can't decode
+      const ext = this.filename.split(".").pop().toLowerCase();
+      const decodable = ["mp3", "wav", "ogg", "m4a", "aac"];
+      if (!decodable.includes(ext)) {
+        resolve();
+        return;
+      }
+
+      const url = URL.createObjectURL(this.rawSource);
+      const audio = new Audio();
+      audio.preload = "metadata";
+      audio.onloadedmetadata = () => {
+        this.duration = isFinite(audio.duration) ? Math.round(audio.duration) : -1;
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.src = url;
+    });
+
+    return tagsLoaded;
   }
 
   getBucketChar() {

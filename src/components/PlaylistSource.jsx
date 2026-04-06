@@ -7,6 +7,7 @@ export function PlaylistSource({
   spotifyUrl,
   onSpotifyUrlChange,
   onSpotifyLogin,
+  onSpotifyDisconnect,
   csvFile,
   onCsvChange,
   dirFiles,
@@ -45,6 +46,16 @@ export function PlaylistSource({
                 value={spotifyUrl}
                 onChange={(e) => onSpotifyUrlChange(e.target.value)}
               />
+              <button
+                style={{
+                  marginTop: "10px", background: "none", border: "1px solid var(--border)",
+                  color: "var(--muted)", borderRadius: "8px", padding: "6px 12px",
+                  fontSize: "0.8rem", cursor: "pointer"
+                }}
+                onClick={onSpotifyDisconnect}
+              >
+                Disconnect Spotify account
+              </button>
             </>
           ) : (
             <button className="spotify-btn" onClick={onSpotifyLogin}>

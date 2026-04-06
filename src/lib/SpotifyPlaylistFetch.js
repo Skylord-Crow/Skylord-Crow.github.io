@@ -178,11 +178,20 @@ async function fetchFromUrl(playlistUrl) {
   const metaRes = await fetch(`https://api.spotify.com/v1/playlists/${id}?fields=name`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!metaRes.ok) throw new Error("Failed to fetch playlist metadata.");
+
+  if (!metaRes.ok) {
+    if (metaRes.status === 403) {
+      throw new Error(
+        "Access denied by Spotify (403). Check Development Mode user allowlist or playlist privacy."
+      );
+    }
+    throw new Error(`Failed to fetch playlist metadata: ${metaRes.status}`);
+  }
+
   const meta = await metaRes.json();
 
   const results = [];
-  let url = `https://api.spotify.com/v1/playlists/${id}/tracks`;
+  let url = `https://api.spotify.com/v1/playlists/${id}/items`
 
   while (url) {
     const res = await fetch(url, {
@@ -190,22 +199,38 @@ async function fetchFromUrl(playlistUrl) {
     });
 
     if (!res.ok) {
-      if (res.status === 401 || res.status === 403) {
+      if (res.status === 401) {
+        // Token expired or revoked — force re-auth
         accessToken = null;
         localStorage.clear();
-        throw new Error("Spotify session invalid. Refresh to log in again.");
+        throw new Error("Spotify session expired. Please log in again.");
       }
-      throw new Error("Failed to fetch playlist from Spotify.");
+
+      if (res.status === 403) {
+        // Valid token but access denied — do NOT wipe auth
+        throw new Error(
+          "Access denied by Spotify (403). If your app is in Development Mode, " +
+          "add your account under 'Users and Access' in the Spotify Developer Dashboard. " +
+          "If the playlist is private, make sure you own it or have been granted access."
+        );
+      }
+
+      throw new Error(`Spotify API error: ${res.status}`);
     }
 
     const data = await res.json();
+    if (results.length === 0 && data.items?.length > 0) {
+      console.log("Spotify raw item sample:", JSON.stringify(data.items[0], null, 2));
+    }
+
     results.push(
       ...data.items
-        .filter((i) => i.track)
-        .map((item) => ({
-          uri: item.track.uri,
-          name: item.track.name,
-          artists: item.track.artists.map((a) => a.name).join(", "),
+        .map((i) => i.track ?? i.item ?? null)   // handle both field names
+        .filter((t) => t && t.type === "track")  // keep only tracks, not episodes
+        .map((track) => ({
+          uri: track.uri,
+          name: track.name,
+          artists: track.artists.map((a) => a.name).join(", "),
         }))
     );
 
@@ -215,9 +240,19 @@ async function fetchFromUrl(playlistUrl) {
   return { name: meta.name, tracks: results };
 }
 
+function disconnect() {
+  accessToken = null;
+  localStorage.removeItem("spotify_access_token");
+  localStorage.removeItem("spotify_token_expiry");
+  localStorage.removeItem("spotify_refresh_token");
+  localStorage.removeItem("spotify_pkce_verifier");
+  localStorage.removeItem("spotify_auth_state");
+}
+
 export const SpotifyPlaylistFetch = {
   init,
   loginIfNeeded,
   fetchFromUrl,
   isAuthenticated,
+  disconnect,
 };
