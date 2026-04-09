@@ -10,10 +10,12 @@ const SPOTIFY_CLIENT_ID = "e96819b4ea994c588fa3f09e9af3a496";
 // Derive the correct redirect URI for both local dev and GitHub Pages.
 // On GitHub Pages the app lives at https://user.github.io/repo-name/
 // so we use the full href minus any query/hash, not just origin.
-const redirectUri = window.location.href
-  .split("?")[0]
-  .split("#")[0]
-  .replace(/\/$/, "");
+const isDev = window.location.hostname === "127.0.0.1";
+
+const redirectUri = isDev
+  ? "http://127.0.0.1:8080"
+  : "https://can-bot.github.io";
+
 
 // Run synchronously before React mounts so the ?code= param is
 // always caught on the first pass, regardless of React lifecycle.
