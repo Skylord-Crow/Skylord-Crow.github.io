@@ -39,6 +39,36 @@ async function generatePKCE() {
   return { verifier, challenge: base64url(digest) };
 }
 
+/* ─── Spotify key helpers ──────────────────────────────────── */
+
+// Centralised key names so they're never mistyped across functions
+const KEYS = {
+  accessToken: "spotify_access_token",
+  tokenExpiry: "spotify_token_expiry",
+  refreshToken: "spotify_refresh_token",
+  pkceVerifier: "spotify_pkce_verifier",
+  authState: "spotify_auth_state",
+};
+
+function clearSpotifyStorage() {
+  // Only removes Spotify-specific keys — does NOT wipe the entire
+  // localStorage origin, which would affect unrelated app state.
+  Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
+}
+
+function persistToken(data) {
+  accessToken = data.access_token;
+  localStorage.setItem(KEYS.accessToken, accessToken);
+  localStorage.setItem(
+    KEYS.tokenExpiry,
+    String(Date.now() + data.expires_in * 1000)
+  );
+  // Persist rotated refresh token if Spotify issues a new one
+  if (data.refresh_token) {
+    localStorage.setItem(KEYS.refreshToken, data.refresh_token);
+  }
+}
+
 /* ─── Module state ─────────────────────────────────────────── */
 
 let CLIENT_ID = "";
@@ -52,14 +82,18 @@ async function init(clientId, redirectUri) {
   REDIRECT_URI = redirectUri;
 
   // Restore persisted token
-  const stored = localStorage.getItem("spotify_access_token");
-  const expiry = Number(localStorage.getItem("spotify_token_expiry"));
+  const stored = localStorage.getItem(KEYS.accessToken);
+  const expiry = Number(localStorage.getItem(KEYS.tokenExpiry));
 
   if (stored && expiry && Date.now() < expiry) {
     accessToken = stored;
   } else {
     accessToken = null;
-    localStorage.removeItem("spotify_access_token");
+    localStorage.removeItem(KEYS.accessToken);
+
+    // Attempt silent refresh on startup so a returning user with an
+    // expired access token but valid refresh token stays connected.
+    await refreshToken();
   }
 
   // Handle redirect-back with auth code
@@ -68,7 +102,7 @@ async function init(clientId, redirectUri) {
   const state = params.get("state");
 
   if (code) {
-    if (state !== localStorage.getItem("spotify_auth_state")) {
+    if (state !== localStorage.getItem(KEYS.authState)) {
       throw new Error("OAuth state mismatch.");
     }
     await exchangeCodeForToken(code);
@@ -82,8 +116,8 @@ async function loginIfNeeded() {
   const { verifier, challenge } = await generatePKCE();
   const state = generateRandomString(16);
 
-  localStorage.setItem("spotify_pkce_verifier", verifier);
-  localStorage.setItem("spotify_auth_state", state);
+  localStorage.setItem(KEYS.pkceVerifier, verifier);
+  localStorage.setItem(KEYS.authState, state);
 
   const authUrl = new URL("https://accounts.spotify.com/authorize");
   authUrl.search = new URLSearchParams({
@@ -101,12 +135,12 @@ async function loginIfNeeded() {
 }
 
 function isAuthenticated() {
-  const expiry = Number(localStorage.getItem("spotify_token_expiry"));
+  const expiry = Number(localStorage.getItem(KEYS.tokenExpiry));
   return !!(accessToken && expiry && Date.now() < expiry);
 }
 
 async function refreshToken() {
-  const refresh = localStorage.getItem("spotify_refresh_token");
+  const refresh = localStorage.getItem(KEYS.refreshToken);
   if (!refresh) return false;
 
   const res = await fetch("https://accounts.spotify.com/api/token", {
@@ -122,17 +156,13 @@ async function refreshToken() {
   const data = await res.json();
   if (!data.access_token) return false;
 
-  accessToken = data.access_token;
-  localStorage.setItem("spotify_access_token", accessToken);
-  localStorage.setItem(
-    "spotify_token_expiry",
-    String(Date.now() + data.expires_in * 1000)
-  );
+  // persistToken handles rotated refresh tokens automatically
+  persistToken(data);
   return true;
 }
 
 async function exchangeCodeForToken(code) {
-  const verifier = localStorage.getItem("spotify_pkce_verifier");
+  const verifier = localStorage.getItem(KEYS.pkceVerifier);
 
   const res = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
@@ -147,17 +177,11 @@ async function exchangeCodeForToken(code) {
   });
 
   const data = await res.json();
-  accessToken = data.access_token;
+  persistToken(data);
 
-  localStorage.setItem("spotify_access_token", accessToken);
-  localStorage.setItem(
-    "spotify_token_expiry",
-    String(Date.now() + data.expires_in * 1000)
-  );
-
-  if (data.refresh_token) {
-    localStorage.setItem("spotify_refresh_token", data.refresh_token);
-  }
+  // Clean up one-time PKCE/state keys — they're no longer needed
+  localStorage.removeItem(KEYS.pkceVerifier);
+  localStorage.removeItem(KEYS.authState);
 }
 
 function extractPlaylistId(url) {
@@ -175,9 +199,10 @@ async function fetchFromUrl(playlistUrl) {
   if (!id) throw new Error("Invalid Spotify playlist URL.");
 
   // Fetch playlist metadata (name) separately
-  const metaRes = await fetch(`https://api.spotify.com/v1/playlists/${id}?fields=name`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const metaRes = await fetch(
+    `https://api.spotify.com/v1/playlists/${id}?fields=name`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
 
   if (!metaRes.ok) {
     if (metaRes.status === 403) {
@@ -189,9 +214,8 @@ async function fetchFromUrl(playlistUrl) {
   }
 
   const meta = await metaRes.json();
-
   const results = [];
-  let url = `https://api.spotify.com/v1/playlists/${id}/items`
+  let url = `https://api.spotify.com/v1/playlists/${id}/items`;
 
   while (url) {
     const res = await fetch(url, {
@@ -200,33 +224,32 @@ async function fetchFromUrl(playlistUrl) {
 
     if (!res.ok) {
       if (res.status === 401) {
-        // Token expired or revoked — force re-auth
+        // Token expired or revoked — clear only Spotify keys, not all localStorage
+        clearSpotifyStorage();
         accessToken = null;
-        localStorage.clear();
         throw new Error("Spotify session expired. Please log in again.");
       }
-
       if (res.status === 403) {
-        // Valid token but access denied — do NOT wipe auth
         throw new Error(
           "Access denied by Spotify (403). If your app is in Development Mode, " +
           "add your account under 'Users and Access' in the Spotify Developer Dashboard. " +
           "If the playlist is private, make sure you own it or have been granted access."
         );
       }
-
       throw new Error(`Spotify API error: ${res.status}`);
     }
 
     const data = await res.json();
+
+    // Debug: log first raw item to confirm field structure
     if (results.length === 0 && data.items?.length > 0) {
       console.log("Spotify raw item sample:", JSON.stringify(data.items[0], null, 2));
     }
 
     results.push(
       ...data.items
-        .map((i) => i.track ?? i.item ?? null)   // handle both field names
-        .filter((t) => t && t.type === "track")  // keep only tracks, not episodes
+        .map((i) => i.track ?? i.item ?? null)  // handle both field names
+        .filter((t) => t && t.type === "track") // drop episodes and nulls
         .map((track) => ({
           uri: track.uri,
           name: track.name,
@@ -242,11 +265,7 @@ async function fetchFromUrl(playlistUrl) {
 
 function disconnect() {
   accessToken = null;
-  localStorage.removeItem("spotify_access_token");
-  localStorage.removeItem("spotify_token_expiry");
-  localStorage.removeItem("spotify_refresh_token");
-  localStorage.removeItem("spotify_pkce_verifier");
-  localStorage.removeItem("spotify_auth_state");
+  clearSpotifyStorage();
 }
 
 export const SpotifyPlaylistFetch = {

@@ -1,24 +1,16 @@
-import { normalise, MIN_SIMILARITY } from "../lib/matcherUtils.js";
+import { normalise, MIN_SIMILARITY, MIN_KEY_LENGTH } from "../lib/matcherUtils.js";
 
 /* ─── Algorithms ───────────────────────────────────────────── */
 
-/**
- * Fast length-ratio rejection — skips expensive LCS when strings
- * differ too much in length.
- */
 function fastReject(a, b) {
   const r = Math.min(a.length, b.length) / Math.max(a.length, b.length);
   return r < 0.6;
 }
 
-/**
- * LCS-based similarity normalised to [0, 1].
- */
 function similarity(a, b) {
   const dp = Array.from({ length: a.length + 1 }, () =>
     new Array(b.length + 1).fill(0)
   );
-
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
       dp[i][j] =
@@ -27,13 +19,9 @@ function similarity(a, b) {
           : Math.max(dp[i - 1][j], dp[i][j - 1]);
     }
   }
-
   return (2 * dp[a.length][b.length]) / (a.length + b.length);
 }
 
-/**
- * Proportion of shared tokens (word-level, order-independent).
- */
 function tokenScore(a, b) {
   const A = new Set(a.split(" "));
   const B = new Set(b.split(" "));
@@ -41,14 +29,13 @@ function tokenScore(a, b) {
   return common / Math.max(A.size, B.size);
 }
 
-/**
- * Finds the best match for a track name against the pre-built index.
- *
- * Scoring: 70% LCS + 30% token overlap.
- */
 function findBestMatch(trackName, index) {
   const key = normalise(trackName);
   if (!key) return null;
+
+  // Reject keys that are too short — prevents short titles like "Dog"
+  // or "Key" from producing false positive matches above MIN_SIMILARITY.
+  if (key.length < MIN_KEY_LENGTH) return null;
 
   const buckets = new Set([
     key[0],
@@ -85,10 +72,15 @@ self.onmessage = (e) => {
   const { tracks, index } = e.data;
   const results = [];
 
+  // Batch log updates — posting a message on every iteration causes
+  // React to re-render the log panel for each track, which is slow for
+  // large playlists. Post every 10 results instead.
+  const PROGRESS_INTERVAL = 10;
+
   for (let i = 0; i < tracks.length; i++) {
     results.push(findBestMatch(tracks[i], index));
 
-    if (i % 5 === 0) {
+    if (i % PROGRESS_INTERVAL === 0) {
       self.postMessage({ progress: i + 1 });
     }
   }

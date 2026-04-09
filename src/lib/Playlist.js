@@ -49,8 +49,9 @@ export class Playlist {
 
     if (!tracks.length) {
       throw new Error(
-        "No tracks found in this playlist. It may be empty, contain only podcast episodes, " +
-        "or all tracks may be unavailable in your region. Check the console for the raw item structure."
+        "No tracks found in this playlist. It may be empty, contain only " +
+        "podcast episodes, or all tracks may be unavailable in your region. " +
+        "Check the console for the raw item structure."
       );
     }
 
@@ -68,7 +69,9 @@ export class Playlist {
 
     this.tracksToFind = Array.from(files)
       .filter((f) => /\.(mp3|flac|ogg|m4a)$/i.test(f.name))
-      .map((f) => f.name);
+      // Use webkitRelativePath so paths align with the music library index.
+      // Fall back to bare filename if the browser doesn't provide it.
+      .map((f) => f.webkitRelativePath || f.name);
 
     return this.tracksToFind.length;
   }
@@ -114,16 +117,22 @@ export class Playlist {
   generateM3U8() {
     const today = new Date().toISOString().split("T")[0];
 
-    // Collect matched entries
-    const entries = [];
-    this.matchedTracks.forEach((match) => {
-      if (!match) return;
-      entries.push(match);
-    });
+    // Determine #ARTIST: header in a single pass, trimming artist strings
+    // to avoid "Artist" vs "Artist " being treated as two distinct values.
+    let singleArtist = null;
+    let artistSet = new Set();
+    let count = 0;
 
-    // Use #ARTIST: header only when every track shares the same artist
-    const artists = [...new Set(entries.map((e) => e.artist).filter(Boolean))];
-    const singleArtist = artists.length === 1 ? artists[0] : null;
+    for (const match of this.matchedTracks) {
+      if (!match) continue;
+      const artist = match.artist?.trim();
+      if (artist) artistSet.add(artist);
+      count++;
+    }
+
+    if (artistSet.size === 1) {
+      singleArtist = [...artistSet][0];
+    }
 
     // Build output
     let output = "#EXTM3U\n";
@@ -131,21 +140,20 @@ export class Playlist {
     if (singleArtist) output += `#ARTIST:${singleArtist}\n`;
     output += `#DATE:${today}\n`;
 
-    let count = 0;
+    for (const match of this.matchedTracks) {
+      if (!match) continue;
 
-    this.matchedTracks.forEach((match) => {
-      if (!match) return;
-
-      const artist = match.artist || "";
-      const title = match.title || match.path.split("/").pop().replace(/\.[^.]+$/, "");
+      const artist = match.artist?.trim() || "";
+      const title =
+        match.title?.trim() ||
+        match.path.split("/").pop().replace(/\.[^.]+$/, "");
       const duration = match.duration ?? -1;
       const displayName = artist ? `${artist} - ${title}` : title;
       const cleanPath = match.path.replace(/^\//, "");
 
       output += `\n#EXTINF:${duration},${displayName}\n`;
       output += `${cleanPath}\n`;
-      count++;
-    });
+    }
 
     return { content: output, count, total: this.tracksToFind.length };
   }

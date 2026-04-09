@@ -31,14 +31,22 @@ export class MDatabase {
       await Promise.all(batch.map((s) => s.loadMetadata()));
 
       processed += batch.length;
-      onProgress?.(processed, allSongs.length);
 
-      // Yield to keep the UI paint loop alive.
+      // Clamp to total to avoid emitting > 100% if batches overlap
+      onProgress?.(Math.min(processed, allSongs.length), allSongs.length);
+
+      // Yield to keep the UI paint loop alive
       await new Promise((r) => setTimeout(r, 0));
     }
 
+    // Deduplicate by relativePath so the same file added twice (e.g. from
+    // overlapping folder selections) doesn't produce duplicate M3U8 entries.
+    const seen = new Set();
+
     for (const song of allSongs) {
       if (!song.normalizedName) continue;
+      if (seen.has(song.relativePath)) continue;
+      seen.add(song.relativePath);
 
       this.songs.push(song);
 
@@ -54,7 +62,11 @@ export class MDatabase {
       });
     }
 
-    onProgress?.(files.length, files.length);
+    // Final progress tick — only emit if we haven't already hit 100%
+    // (avoids the redundant double-fire at exactly BATCH_SIZE files)
+    if (processed < allSongs.length || allSongs.length === 0) {
+      onProgress?.(allSongs.length, allSongs.length);
+    }
   }
 
   /** Returns the raw index object suitable for postMessage to the worker. */

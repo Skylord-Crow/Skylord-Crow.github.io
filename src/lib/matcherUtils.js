@@ -9,7 +9,7 @@ export const STOPWORDS = [
   "remaster", "remastered",
   "mix", "mono", "stereo",
   "version", "edit", "live",
-  "feat", "ft", "the", "and",
+  "feat", "ft",
 ];
 
 /**
@@ -30,7 +30,13 @@ export function normalise(text) {
     .trim();
 
   for (const w of STOPWORDS) {
-    text = text.replace(new RegExp(`\\b${w}\\b`, "g"), "");
+    // Use word boundaries only when the word is 3+ characters to avoid
+    // mangling short tokens adjacent to numbers or special characters
+    const pattern =
+      w.length >= 3
+        ? new RegExp(`\\b${w}\\b`, "g")
+        : new RegExp(`(^|\\s)${w}(\\s|$)`, "g");
+    text = text.replace(pattern, " ");
   }
 
   return text.replace(/\s+/g, " ").trim();
@@ -41,3 +47,12 @@ export function normalise(text) {
  * @constant {number}
  */
 export const MIN_SIMILARITY = 0.6;
+
+/**
+ * Minimum length (characters) a normalised key must have before a match
+ * is accepted. Prevents short titles like "Dog" or "Key" scoring false
+ * positives against unrelated tracks.
+ *
+ * @constant {number}
+ */
+export const MIN_KEY_LENGTH = 4;
