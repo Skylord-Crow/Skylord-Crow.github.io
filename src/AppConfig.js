@@ -20,7 +20,7 @@ const AppConfig = {
      * Your Spotify Developer app's Client ID.
      * Found at: https://developer.spotify.com/dashboard → your app → Settings
      */
-    SPOTIFY_CLIENT_ID: "e96819b4ea994c588fa3f09e9af3a496",
+    SPOTIFY_CLIENT_ID: "5419dd952cec4945a7948d591fa115a9",
 
     /**
      * The URL your app is deployed at on GitHub Pages.
@@ -32,7 +32,7 @@ const AppConfig = {
      * If your repo has any other name (a project page), it would be:
      * https://<username>.github.io/<repo-name>
      */
-    GITHUB_PAGES_URL: "https://can-bot.github.io",
+    GITHUB_PAGES_URL: "https://skylord-crow.github.io/",
 
     /**
      * The URL used when running the app locally during development.
